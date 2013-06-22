@@ -42,12 +42,14 @@ object ScalaJSBuild extends Build {
               packageJS in (libraryAux, Compile),
               packageJS in (library, Compile)
           ) map { (target, corejslib, javalib, scalalib, libraryAux, library) =>
-            val allJSFiles =
-              Seq(corejslib, javalib, scalalib, libraryAux, library)
-            val output = target / ("scalajs-runtime.js")
+            val minimalRuntimeJSFiles = corejslib ++ javalib ++ scalalib.filter(_.getName.contains("-minimal")) ++ libraryAux ++ library
+            val fullRuntimeJSFiles = corejslib ++ javalib ++ scalalib.filterNot(_.getName.contains("-minimal")) ++ libraryAux ++ library
+            val outputFull = target / ("scalajs-runtime.js")
+            val outputMinimal = target / ("scalajs-runtime-minimal.js")
             target.mkdir()
-            catJSFilesAndTheirSourceMaps(allJSFiles, output)
-            output
+            catJSFilesAndTheirSourceMaps(fullRuntimeJSFiles, outputFull)
+            catJSFilesAndTheirSourceMaps(minimalRuntimeJSFiles, outputMinimal)
+            outputFull :: outputMinimal  :: Nil
           },
 
           clean <<= clean.dependsOn(
@@ -106,7 +108,7 @@ object ScalaJSBuild extends Build {
             val output = target / ("scalajs-corejslib.js")
             target.mkdir()
             catJSFilesAndTheirSourceMaps(allJSFiles, output)
-            output
+            output :: Nil
           }
       )
   )
@@ -129,7 +131,17 @@ object ScalaJSBuild extends Build {
 
           // The Scala lib is full of warnings we don't want to see
           scalacOptions ~= (_.filterNot(
-              Set("-deprecation", "-unchecked", "-feature") contains _))
+              Set("-deprecation", "-unchecked", "-feature") contains _)),
+
+          // add minimal runtime package
+          packageJsFiles <<= (packageJsFiles, classDirectory in Compile, moduleName) { (fullRuntime, classDir, modName) =>
+            val packages = List("collection", "concurrent", "io", "parallel", "ref", "sys", "testing", "text", "xml")
+            val excludesPart1 = packages.map(scalaPackage => classDir / "scala" / scalaPackage ** "*.js").reduce(_ +++ _)
+            val exclucesPart2 = List("parsing", "regexp", "matching", "logging", "automata", "grammer", "hashing").map(scalaPackage => classDir / "scala" / "util" / scalaPackage ** "*.js").reduce(_ +++ _)
+            val files = (classDir ** "*.js") --- excludesPart1 --- exclucesPart2
+            fullRuntime :+ (files, modName + "-minimal.js")
+          }
+
       )
   ).dependsOn(compiler)
 

@@ -7,7 +7,8 @@ import SourceMapCat.catJSFilesAndTheirSourceMaps
 
 object ScalaJSPlugin extends Plugin {
   object ScalaJSKeys {
-    val packageJS = TaskKey[File]("package-js")
+    val packageJS = TaskKey[Seq[File]]("package-js")
+    val packageJsFiles = SettingKey[Seq[(PathFinder, String)]]("package-js-files")
   }
 
   import ScalaJSKeys._
@@ -77,14 +78,21 @@ object ScalaJSPlugin extends Plugin {
         sbt.inc.Analysis.Empty
       },
 
+      packageJsFiles <<= (classDirectory in Compile, moduleName) { (classDir, modName) =>
+        Seq((classDir ** "*.js", modName + ".js"))
+      },
+
       packageJS in Compile <<= (
           compile in Compile, classDirectory in Compile,
-          crossTarget in Compile, moduleName
-      ) map { (compilationResult, classDir, target, modName) =>
-        val allJSFiles = (classDir ** "*.js").get
-        val output = target / (modName + ".js")
-        catJSFilesAndTheirSourceMaps(allJSFiles, output)
-        output
+          crossTarget in Compile, packageJsFiles
+      ) map { (compilationResult, classDir, target, packages) =>
+        val ret = for(jsPackage <- packages) yield {
+          val output = target / jsPackage._2
+          catJSFilesAndTheirSourceMaps(jsPackage._1.get, output)
+          output
+        }
+        println(ret)
+        ret
       }
   )
 
